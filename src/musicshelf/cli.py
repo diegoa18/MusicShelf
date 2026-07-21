@@ -1,10 +1,14 @@
 from typing import Annotated, Optional
+from pathlib import Path
+
 import typer
 from rich import print
+
 from musicshelf.converter import AudioFormat, convert
 from musicshelf.downloader import download_song
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.metadata import write_metadata
+from musicshelf.organizer import organize
 
 app = typer.Typer(add_completion=False)
 
@@ -15,6 +19,10 @@ def main(
         Optional[AudioFormat],
         typer.Option("-f", "--format", help="Output audio format"),
     ] = None,
+    directory: Annotated[
+        Path,
+        typer.Option("-d", "--directory", help="Output directory for organized library"),
+    ] = Path("."),
 ):
     try:
         song = download_song(url)
@@ -36,6 +44,10 @@ def main(
         if song.final_path:
             write_metadata(song)
             print(f"[green]Metadata written:[/green] {song.final_path}")
+
+        if song.final_path:
+            target = organize(song, directory)
+            print(f"[green]Organized:[/green] {target}")
 
     except MusicShelfError as e:
         print(f"[red]Error:[/red] {e}")
