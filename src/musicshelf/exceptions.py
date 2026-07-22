@@ -3,3 +3,6 @@ class MusicShelfError(Exception):
 
 class ConversionError(MusicShelfError):
     """audio conversion fails"""
+
+class ValidationError(MusicShelfError):
+    """URL or metadata validation fails"""

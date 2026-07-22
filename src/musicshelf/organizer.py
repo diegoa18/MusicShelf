@@ -1,19 +1,15 @@
 from __future__ import annotations
-
 import re
 import shutil
 from pathlib import Path
-
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.models import Song
-
 _INVALID_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 
 def _sanitize(name: str) -> str:
-    cleaned = _INVALID_CHARS.sub("", name).strip()
+    cleaned = _INVALID_CHARS.sub("", name).strip().replace("..", "")
     return cleaned or "Unknown"
-
 
 def organize(song: Song, directory: Path) -> Path:
     if not song.final_path or not song.final_path.exists():
@@ -28,7 +24,10 @@ def organize(song: Song, directory: Path) -> Path:
     parts.append(_sanitize(song.title))
     filename = " - ".join(parts) + song.final_path.suffix
 
-    target = directory / artist / album / filename
+    target = (directory / artist / album / filename).resolve()
+    if not target.is_relative_to(directory.resolve()):
+        raise MusicShelfError("Invalid path: attempt to write outside target directory")
+
     target.parent.mkdir(parents=True, exist_ok=True)
 
     shutil.move(str(song.final_path), str(target))
