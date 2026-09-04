@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 import re
 import shutil
 from pathlib import Path
+
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.models import Song
+
 _INVALID_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 

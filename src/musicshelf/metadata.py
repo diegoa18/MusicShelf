@@ -1,14 +1,17 @@
 from __future__ import annotations
+
 import base64
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
+
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, ID3, TALB, TDRC, TIT2, TPE1, TRCK
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
+
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.models import Song
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import re
 from enum import StrEnum
 from typing import Any
+
 
 class UrlType(StrEnum):
     SONG = "song"
