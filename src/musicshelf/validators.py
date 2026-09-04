@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 from enum import StrEnum
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 
 class UrlType(StrEnum):
@@ -12,17 +12,35 @@ class UrlType(StrEnum):
     CHANNEL = "channel"
     UNKNOWN = "unknown"
 
-_PATTERNS: dict[UrlType, re.Pattern[str]] = {
-    UrlType.SONG: re.compile(r"^https?://music\.youtube\.com/watch\?v="),
-    UrlType.ALBUM: re.compile(r"^https?://music\.youtube\.com/playlist\?list=OLAK5uy_"),
-    UrlType.PLAYLIST: re.compile(r"^https?://music\.youtube\.com/playlist\?list=PL"),
-    UrlType.CHANNEL: re.compile(r"^https?://music\.youtube\.com/@"),
-}
 
 def detect_url_type(url: str) -> UrlType:
-    for url_type, pattern in _PATTERNS.items():
-        if pattern.search(url):
-            return url_type
+    parsed = urlparse(url)
+
+    if parsed.scheme not in {"http", "https"}:
+        return UrlType.UNKNOWN
+
+    if parsed.hostname != "music.youtube.com":
+        return UrlType.UNKNOWN
+
+    query = parse_qs(parsed.query)
+
+    if parsed.path == "/watch" and "v" in query:
+        return UrlType.SONG
+
+    if parsed.path == "/playlist" and "list" in query:
+        playlist_id = query["list"][0]
+
+        if playlist_id.startswith("OLAK5uy_"):
+            return UrlType.ALBUM
+
+        if playlist_id.startswith("PL"):
+            return UrlType.PLAYLIST
+
+        return UrlType.UNKNOWN
+
+    if parsed.path.startswith("/@"):
+        return UrlType.CHANNEL
+
     return UrlType.UNKNOWN
 
 def validate_song_metadata(info: dict[str, Any]) -> bool:
