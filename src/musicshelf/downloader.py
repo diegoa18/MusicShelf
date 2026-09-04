@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
+
 from yt_dlp import YoutubeDL
+
 from musicshelf.exceptions import ValidationError
 from musicshelf.models import Song
 from musicshelf.validators import validate_song_metadata
@@ -14,7 +16,6 @@ _YTDLP_OPTIONS: dict[str, Any] = {
 }
 
 _WATCH_URL = "https://music.youtube.com/watch?v={}"
-_TEMP_DIR = Path(tempfile.gettempdir()) / "musicshelf"
 _SAFE_VIDEO_ID = re.compile(r"^[a-zA-Z0-9_-]{1,20}$")
 _SAFE_EXTENSIONS = {"webm", "opus", "m4a", "mp3", "ogg", "flac", "wav", "mkv"}
 
@@ -56,7 +57,7 @@ def _download(url: str, temp_dir: Path) -> dict[str, Any]:
         info = ydl.extract_info(url, download=True)
         return info
 
-def download_song(url: str) -> Song:
+def download_song(url: str, temp_dir: Path) -> Song:
     info = _extract_info(url)
 
     if not validate_song_metadata(info):
@@ -65,12 +66,11 @@ def download_song(url: str) -> Song:
             "It may be a user-uploaded re-upload, not an official release."
         )
 
-    _TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    _download(url, _TEMP_DIR)
+    _download(url, temp_dir)
 
     song = _build_song(info, url)
     ext = _sanitize_ext(info.get("ext"))
-    song.download_path = _TEMP_DIR / f"{song.video_id}.{ext}"
+    song.download_path = temp_dir / f"{song.video_id}.{ext}"
     return song
 
 def download_album(url: str) -> list[Song]:
@@ -105,13 +105,11 @@ def download_album(url: str) -> list[Song]:
 
     return songs
 
-def download_tracks(songs: list[Song]) -> list[Song]:
-    _TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
+def download_tracks(songs: list[Song], temp_dir: Path) -> list[Song]:
     options = {
         **_YTDLP_OPTIONS,
         "format": "bestaudio/best",
-        "outtmpl": str(_TEMP_DIR / "%(id)s.%(ext)s"),
+        "outtmpl": str(temp_dir / "%(id)s.%(ext)s"),
     }
 
     with YoutubeDL(options) as ydl:
@@ -120,6 +118,6 @@ def download_tracks(songs: list[Song]) -> list[Song]:
                 continue
             info = ydl.extract_info(song.source_url, download=True)
             ext = _sanitize_ext(info.get("ext"))
-            song.download_path = _TEMP_DIR / f"{song.video_id}.{ext}"
+            song.download_path = temp_dir / f"{song.video_id}.{ext}"
 
     return songs

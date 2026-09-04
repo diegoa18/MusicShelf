@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 import shutil
 import subprocess
-import tempfile
 from enum import StrEnum
 from pathlib import Path
+
 from musicshelf.exceptions import ConversionError
 
-_TEMP_DIR = Path(tempfile.gettempdir()) / "musicshelf"
 
 class AudioFormat(StrEnum):
     FLAC = "flac"
@@ -25,12 +25,13 @@ _FORMAT_ARGS: dict[AudioFormat, list[str]] = {
     AudioFormat.OGG: ["-codec:a", "libvorbis", "-b:a", "256k"],
 }
 
-def convert(source: Path, fmt: AudioFormat) -> Path:
+def convert(source: Path, fmt: AudioFormat, temp_dir: Path) -> Path:
     if not source.exists():
         raise ConversionError(f"Source file not found: {source}")
 
     resolved = source.resolve()
-    if not resolved.is_relative_to(_TEMP_DIR.resolve()):
+    temp_root = temp_dir.resolve()
+    if not resolved.is_relative_to(temp_root):
         raise ConversionError("Source file is outside the temporary directory")
 
     if shutil.which("ffmpeg") is None:
@@ -47,7 +48,7 @@ def convert(source: Path, fmt: AudioFormat) -> Path:
         str(output),
     ]
 
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise ConversionError(f"ffmpeg failed: {result.stderr.strip()}")
 

@@ -1,8 +1,12 @@
 from __future__ import annotations
+
+import tempfile
 from pathlib import Path
 from typing import Annotated
+
 import typer
 from rich import print
+
 from musicshelf.converter import AudioFormat, convert
 from musicshelf.downloader import download_album, download_song, download_tracks
 from musicshelf.exceptions import MusicShelfError
@@ -16,8 +20,9 @@ def _process_song(
     url: str,
     fmt: AudioFormat,
     directory: Path,
+    temp_dir: Path,
 ) -> None:
-    song = download_song(url)
+    song = download_song(url, temp_dir)
 
     print(f"[bold]Title:[/bold] {song.title}")
     print(f"[bold]Artist:[/bold] {song.artist}")
@@ -27,7 +32,7 @@ def _process_song(
     print(f"[bold]Duration:[/bold] {song.duration}")
 
     if song.download_path:
-        song.final_path = convert(song.download_path, fmt)
+        song.final_path = convert(song.download_path, fmt, temp_dir)
         print(f"[green]Converted:[/green] {song.final_path}")
 
     if song.final_path:
@@ -43,6 +48,7 @@ def _process_album(
     url: str,
     fmt: AudioFormat,
     directory: Path,
+    temp_dir: Path,
 ) -> None:
     songs = download_album(url)
 
@@ -52,13 +58,13 @@ def _process_album(
     print(f"[bold]Artist:[/bold] {artist_name}")
     print(f"[bold]Tracks:[/bold] {len(songs)}")
 
-    songs = download_tracks(songs)
+    songs = download_tracks(songs, temp_dir)
 
     for song in songs:
         print(f"\n[bold]  → {song.title}[/bold]")
 
         if song.download_path:
-            song.final_path = convert(song.download_path, fmt)
+            song.final_path = convert(song.download_path, fmt, temp_dir)
 
         if song.final_path:
             write_metadata(song)
@@ -96,10 +102,12 @@ def main(
         if url_type == UrlType.UNKNOWN:
             raise MusicShelfError("Unrecognized YouTube Music URL.")
 
-        if url_type == UrlType.ALBUM:
-            _process_album(url, format, directory)
-        else:
-            _process_song(url, format, directory)
+        with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
+            temp_path = Path(temp_dir)
+            if url_type == UrlType.ALBUM:
+                _process_album(url, format, directory, temp_path)
+            else:
+                _process_song(url, format, directory, temp_path)
 
     except MusicShelfError as e:
         print(f"[red]Error:[/red] {e}")
