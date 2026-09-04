@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 import typer
 from rich import print
 from musicshelf.converter import AudioFormat, convert
@@ -14,7 +14,7 @@ app = typer.Typer(add_completion=False)
 
 def _process_song(
     url: str,
-    fmt: Optional[AudioFormat],
+    fmt: AudioFormat,
     directory: Path,
 ) -> None:
     song = download_song(url)
@@ -26,12 +26,9 @@ def _process_song(
     print(f"[bold]Year:[/bold] {song.year}")
     print(f"[bold]Duration:[/bold] {song.duration}")
 
-    if fmt and song.download_path:
+    if song.download_path:
         song.final_path = convert(song.download_path, fmt)
         print(f"[green]Converted:[/green] {song.final_path}")
-    elif song.download_path:
-        song.final_path = song.download_path
-        print(f"[green]Downloaded:[/green] {song.download_path}")
 
     if song.final_path:
         write_metadata(song)
@@ -44,7 +41,7 @@ def _process_song(
 
 def _process_album(
     url: str,
-    fmt: Optional[AudioFormat],
+    fmt: AudioFormat,
     directory: Path,
 ) -> None:
     songs = download_album(url)
@@ -60,10 +57,8 @@ def _process_album(
     for song in songs:
         print(f"\n[bold]  → {song.title}[/bold]")
 
-        if fmt and song.download_path:
+        if song.download_path:
             song.final_path = convert(song.download_path, fmt)
-        elif song.download_path:
-            song.final_path = song.download_path
 
         if song.final_path:
             write_metadata(song)
@@ -77,9 +72,9 @@ def _process_album(
 def main(
     url: str = typer.Argument(..., help="YTMusic URL"),
     format: Annotated[
-        Optional[AudioFormat],
+        AudioFormat,
         typer.Option("-f", "--format", help="Output audio format"),
-    ] = None,
+    ] = AudioFormat.M4A,
     directory: Annotated[
         Path,
         typer.Option("-d", "--directory", help="Output directory for organized library"),
