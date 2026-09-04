@@ -121,3 +121,13 @@ def download_tracks(songs: list[Song], temp_dir: Path) -> list[Song]:
             song.download_path = temp_dir / f"{song.video_id}.{ext}"
 
     return songs
+
+def inspect_song(url: str) -> Song:
+    info = _extract_info(url)
+
+    if not validate_song_metadata(info):
+        raise ValidationError(
+            "This video lacks formal metadata (artist, album, year)."
+            "It may be a user_uploaded re-upload, not an official release."
+        )
+    return _build_song(info, url)

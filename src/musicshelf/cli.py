@@ -8,10 +8,15 @@ import typer
 from rich import print
 
 from musicshelf.converter import AudioFormat, convert
-from musicshelf.downloader import download_album, download_song, download_tracks
+from musicshelf.downloader import (
+    download_album,
+    download_song,
+    download_tracks,
+    inspect_song,
+)
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.metadata import write_metadata
-from musicshelf.organizer import organize
+from musicshelf.organizer import get_target_path, organize
 from musicshelf.validators import UrlType, detect_url_type
 
 app = typer.Typer(add_completion=False)
@@ -74,6 +79,41 @@ def _process_album(
             print(f"  [green]→ {target}[/green]")
 
 
+def _preview_song(
+    url: str,
+    fmt: AudioFormat,
+    directory: Path,
+) -> None:
+    song = inspect_song(url)
+    target = get_target_path(song, directory, f".{fmt.value}",)
+
+    print("[bold]Dry run[/bold]")
+    print(f"[bold]Title:[/bold] {song.title}")
+    print(f"[bold]Artist:[/bold] {song.artist}")
+    print(f"[bold]Album:[/bold] {song.album}")
+    print(f"[bold]Track:[/bold] {song.track}")
+    print(f"[bold]Year:[/bold] {song.year}")
+    print(f"[bold]Duration:[/bold] {song.duration}")
+    print(f"[bold]Format:[/bold] {fmt.value}")
+    print(f"[bold]Output:[/bold] {target}")
+
+def _preview_album(
+    url: str,
+    fmt: AudioFormat,
+    directory: Path,
+) -> None:
+    songs = download_album(url)
+
+    print("[bold]Dry run[/bold]")
+    print(f"[bold]Album:[/bold] {songs[0].album}")
+    print(f"[bold]Artist:[/bold] {songs[0].artist}")
+    print(f"[bold]Tracks:[/bold] {len(songs)}")
+
+    for song in songs:
+        target = get_target_path(song, directory, f".{fmt.value}",)
+        print(f"  → {target}")
+
+
 @app.command()
 def main(
     url: str = typer.Argument(..., help="YTMusic URL"),
@@ -85,6 +125,10 @@ def main(
         Path,
         typer.Option("-d", "--directory", help="Output directory for organized library"),
     ] = Path("."),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview changes without downloading or modifying files"),
+    ] = False,
 ):
     try:
         url_type = detect_url_type(url)
@@ -102,12 +146,18 @@ def main(
         if url_type == UrlType.UNKNOWN:
             raise MusicShelfError("Unrecognized YouTube Music URL.")
 
-        with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
-            temp_path = Path(temp_dir)
-            if url_type == UrlType.ALBUM:
-                _process_album(url, format, directory, temp_path)
+        if url_type == UrlType.ALBUM:
+            if dry_run:
+                _preview_album(url, format, directory)
             else:
-                _process_song(url, format, directory, temp_path)
+                with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
+                    _process_album(url, format, directory, Path(temp_dir))
+        else:
+            if dry_run:
+                _preview_song(url, format, directory)
+            else:
+                with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
+                    _process_song(url, format, directory, Path(temp_dir))
 
     except MusicShelfError as e:
         print(f"[red]Error:[/red] {e}")
