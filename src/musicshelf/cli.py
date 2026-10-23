@@ -6,6 +6,8 @@ from typing import Annotated
 
 import typer
 from rich import print
+from rich.console import Console
+console = Console()
 
 from musicshelf.converter import AudioFormat, convert
 from musicshelf.downloader import (
@@ -36,7 +38,8 @@ def _process_song(
         print(f"[yellow]Skipped:[/yellow] '{preview.title}' already exists in the library.")
         return
 
-    song = download_song(url, temp_dir)
+    with console.status("[bold cyan]Downloading Youtube audio...[/bold cyan]"):
+        song = download_song(url, temp_dir)
 
     print(f"[bold]Title:[/bold] {song.title}")
     print(f"[bold]Artist:[/bold] {song.artist}")
@@ -46,7 +49,8 @@ def _process_song(
     print(f"[bold]Duration:[/bold] {song.duration}")
 
     if song.download_path:
-        song.final_path = convert(song.download_path, fmt, temp_dir)
+        with console.status(f"[bold cyan]Converting to {fmt.value}...[/bold cyan]"):
+            song.final_path = convert(song.download_path, fmt, temp_dir)
         print(f"[green]Converted:[/green] {song.final_path}")
 
     if song.final_path:
@@ -85,13 +89,15 @@ def _process_album(
         print("\n[green]All the tracks are already in the library..[/green]")
         return
 
-    downloaded_songs = download_tracks(pending_songs, temp_dir)
+    with console.status(f"[bold cyan]Downloading {len(pending_songs)} pending tracks...[/bold cyan]"):
+        downloaded_songs = download_tracks(pending_songs, temp_dir)
 
     for song in downloaded_songs:
         print(f"\n[bold]  → {song.title}[/bold]")
 
         if song.download_path:
-            song.final_path = convert(song.download_path, fmt, temp_dir)
+            with console.status(f"[bold cyan]Converting to {fmt.value}...[/bold cyan]"):
+                song.final_path = convert(song.download_path, fmt, temp_dir)
 
         if song.final_path:
             write_metadata(song)
