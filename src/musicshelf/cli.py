@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 from rich import print
@@ -20,6 +20,7 @@ from musicshelf.exceptions import MusicShelfError
 from musicshelf.metadata import write_metadata
 from musicshelf.organizer import get_target_path, organize
 from musicshelf.validators import UrlType, detect_url_type
+from musicshelf.auditor import run_audit
 
 app = typer.Typer(add_completion=False)
 
@@ -144,7 +145,7 @@ def _preview_album(
 
 @app.command()
 def main(
-    url: str = typer.Argument(..., help="YTMusic URL"),
+    url: Annotated[Optional[str], typer.Argument(help="YTMusic URL")] = None,
     format: Annotated[
         AudioFormat,
         typer.Option("-f", "--format", help="Output audio format"),
@@ -161,7 +162,18 @@ def main(
         bool,
         typer.Option("--overwrite", help="Overwrite existing files in the library"),
     ] = False,
+    audit: Annotated[
+        bool,
+        typer.Option("--audit", help="Audit the current library for misplaced or corrupted files"),
+    ] = False,
 ):
+    if audit:
+        run_audit(directory)
+        raise typer.Exit(0)
+    if not url:
+        print("[bold red]✖ Error:[/bold red] You must provide a YouTube Music URL or use the --audit flag.")
+        raise typer.Exit(1)
+
     try:
         url_type = detect_url_type(url)
 
