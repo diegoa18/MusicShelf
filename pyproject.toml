@@ -1,7 +1,7 @@
 [project]
 name = "musicshelf"
 version = "0.1.0"
-description = "Build and organize your local music library from YouTube Music (CLI)."
+description = "Build and organize your local music library from multiple streaming providers (CLI)."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
