@@ -37,7 +37,11 @@ def convert(source: Path, fmt: AudioFormat, temp_dir: Path) -> Path:
     if shutil.which("ffmpeg") is None:
         raise ConversionError("ffmpeg is not installed or not in PATH")
 
-    output = source.with_suffix(f".{fmt.value}")
+    target_ext = f".{fmt.value}"
+    if source.suffix == target_ext:
+        return source
+
+    output = source.with_suffix(target_ext)
     args = [
         "ffmpeg",
         "-y",
