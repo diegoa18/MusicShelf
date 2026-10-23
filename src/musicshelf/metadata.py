@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from mutagen.id3 import APIC, ID3, TALB, TDRC, TIT2, TPE1, TRCK
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
+from PIL import Image
 
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.models import Song
@@ -26,6 +28,18 @@ _FETCH_TIMEOUT = 15
 _MAX_COVER_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
+def _convert_to_jpeg(data: bytes) -> tuple[bytes, str]:
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=90)
+            return out.getvalue(), "image/jpeg"
+    except Exception:
+        return data, _detect_mime(data)
+
+
 def _fetch_cover(url: str) -> tuple[bytes, str] | None:
     if not url.startswith("https://"):
         return None
@@ -35,9 +49,10 @@ def _fetch_cover(url: str) -> tuple[bytes, str] | None:
             data = resp.read(_MAX_COVER_SIZE + 1)
             if len(data) > _MAX_COVER_SIZE:
                 return None
-        return data, _detect_mime(data)
+        return _convert_to_jpeg(data)
     except (urllib.error.URLError, TimeoutError, ValueError):
         return None
+
 
 def _detect_mime(data: bytes) -> str:
     for sig, mime in _MIME_SIGNATURES.items():
@@ -45,12 +60,14 @@ def _detect_mime(data: bytes) -> str:
             return mime
     return DEFAULT_MIME
 
+
 def _build_vorbis_picture_block(data: bytes, mime: str) -> bytes:
     pic = Picture()
     pic.type = 3
     pic.mime = mime
     pic.data = data
     return base64.b64encode(pic.write())
+
 
 def _write_vorbis_tags(audio: OggVorbis | OggOpus, song: Song) -> None:
     audio.clear()
@@ -61,6 +78,7 @@ def _write_vorbis_tags(audio: OggVorbis | OggOpus, song: Song) -> None:
         audio["date"] = [str(song.year)]
     if song.track:
         audio["tracknumber"] = [str(song.track)]
+
 
 def _write_flac(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio = FLAC(path)
@@ -81,6 +99,7 @@ def _write_flac(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None
         audio.add_picture(pic)
     audio.save()
 
+
 def _write_mp3(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio = ID3(path)
     audio.delete()
@@ -96,6 +115,7 @@ def _write_mp3(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
         audio.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
     audio.save()
 
+
 def _write_vorbis(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio = OggVorbis(path)
     _write_vorbis_tags(audio, song)
@@ -103,6 +123,7 @@ def _write_vorbis(song: Song, path: Path, cover: tuple[bytes, str] | None) -> No
         data, mime = cover
         audio.add_picture(Picture(type=3, mime=mime, data=data))
     audio.save()
+
 
 def _write_opus(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio = OggOpus(path)
@@ -112,6 +133,7 @@ def _write_opus(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None
         block = _build_vorbis_picture_block(data, mime)
         audio["METADATA_BLOCK_PICTURE"] = [block.decode("ascii")]
     audio.save()
+
 
 def _write_m4a(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio = MP4(path)
@@ -129,6 +151,7 @@ def _write_m4a(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
         audio["covr"] = [MP4Cover(data, imageformat=fmt)]
     audio.save()
 
+
 _SUPPORTED: dict[str, Callable[..., None]] = {
     ".flac": _write_flac,
     ".mp3": _write_mp3,
@@ -138,6 +161,7 @@ _SUPPORTED: dict[str, Callable[..., None]] = {
 }
 
 _SKIP_METADATA: set[str] = {".wav"}
+
 
 def write_metadata(song: Song) -> None:
     path = song.final_path or song.download_path
