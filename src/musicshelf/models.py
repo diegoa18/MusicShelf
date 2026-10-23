@@ -7,7 +7,7 @@ class Song:
     title: str
     artist: str
     album: str
-    video_id: str | None = None
+    source_id: str | None = None
     track: int | None = None
     year: int | None = None
     duration: int | None = None

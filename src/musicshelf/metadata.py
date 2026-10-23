@@ -12,7 +12,7 @@ from mutagen.id3 import APIC, ID3, TALB, TDRC, TIT2, TPE1, TRCK
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.models import Song
@@ -36,7 +36,7 @@ def _convert_to_jpeg(data: bytes) -> tuple[bytes, str]:
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=90)
             return out.getvalue(), "image/jpeg"
-    except Exception:
+    except (UnidentifiedImageError, OSError, ValueError):
         return data, _detect_mime(data)
 
 

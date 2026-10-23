@@ -2,45 +2,48 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich import print
 from rich.console import Console
-console = Console()
 
+from musicshelf.auditor import run_audit
 from musicshelf.converter import AudioFormat, convert
-from musicshelf.downloader import (
-    download_album,
-    download_song,
-    download_tracks,
-    inspect_song,
-)
 from musicshelf.exceptions import MusicShelfError
 from musicshelf.metadata import write_metadata
 from musicshelf.organizer import get_target_path, organize
-from musicshelf.validators import UrlType, detect_url_type
-from musicshelf.auditor import run_audit
+from musicshelf.providers import MusicProvider, UrlType, get_provider
 
+console = Console()
 app = typer.Typer(add_completion=False)
 
+
 def _process_song(
+    provider: MusicProvider,
     url: str,
     fmt: AudioFormat,
     directory: Path,
     temp_dir: Path,
     overwrite: bool,
 ) -> None:
+    with console.status(
+        f"[bold cyan]Fetching metadata from {provider.name}...[/bold cyan]"
+    ):
+        song = provider.inspect_song(url)
 
-    preview = inspect_song(url)
-    target = get_target_path(preview, directory, f".{fmt.value}")
+    target = get_target_path(song, directory, f".{fmt.value}")
 
     if target.exists() and not overwrite:
-        print(f"[yellow]Skipped:[/yellow] '{preview.title}' already exists in the library.")
+        print(
+            f"[yellow]Skipped:[/yellow] '{song.title}' already exists in the library."
+        )
         return
 
-    with console.status("[bold cyan]Downloading Youtube audio...[/bold cyan]"):
-        song = download_song(url, temp_dir)
+    with console.status(
+        f"[bold cyan]Downloading audio from {provider.name}...[/bold cyan]"
+    ):
+        provider.download_track(song, temp_dir)
 
     print(f"[bold]Title:[/bold] {song.title}")
     print(f"[bold]Artist:[/bold] {song.artist}")
@@ -64,13 +67,17 @@ def _process_song(
 
 
 def _process_album(
+    provider: MusicProvider,
     url: str,
     fmt: AudioFormat,
     directory: Path,
     temp_dir: Path,
     overwrite: bool,
 ) -> None:
-    songs = download_album(url)
+    with console.status(
+        f"[bold cyan]Fetching album metadata from {provider.name}...[/bold cyan]"
+    ):
+        songs = provider.inspect_album(url)
 
     album_name = songs[0].album
     artist_name = songs[0].artist
@@ -82,16 +89,19 @@ def _process_album(
     for song in songs:
         target = get_target_path(song, directory, f".{fmt.value}")
         if target.exists() and not overwrite:
-            print(f"  [yellow]→ Skipped (already exists)):[/yellow] {song.title}")
+            print(f"  [yellow]→ Skipped (already exists):[/yellow] {song.title}")
         else:
             pending_songs.append(song)
 
     if not pending_songs:
-        print("\n[green]All the tracks are already in the library..[/green]")
+        print("\n[green]All tracks are already in the library.[/green]")
         return
 
-    with console.status(f"[bold cyan]Downloading {len(pending_songs)} pending tracks...[/bold cyan]"):
-        downloaded_songs = download_tracks(pending_songs, temp_dir)
+    with console.status(
+        f"[bold cyan]Downloading {len(pending_songs)} pending tracks "
+        f"from {provider.name}...[/bold cyan]"
+    ):
+        downloaded_songs = provider.download_tracks(pending_songs, temp_dir)
 
     for song in downloaded_songs:
         print(f"\n[bold]  → {song.title}[/bold]")
@@ -109,14 +119,16 @@ def _process_album(
 
 
 def _preview_song(
+    provider: MusicProvider,
     url: str,
     fmt: AudioFormat,
     directory: Path,
 ) -> None:
-    song = inspect_song(url)
-    target = get_target_path(song, directory, f".{fmt.value}",)
+    song = provider.inspect_song(url)
+    target = get_target_path(song, directory, f".{fmt.value}")
 
     print("[bold]Dry run[/bold]")
+    print(f"[bold]Provider:[/bold] {provider.name}")
     print(f"[bold]Title:[/bold] {song.title}")
     print(f"[bold]Artist:[/bold] {song.artist}")
     print(f"[bold]Album:[/bold] {song.album}")
@@ -126,37 +138,48 @@ def _preview_song(
     print(f"[bold]Format:[/bold] {fmt.value}")
     print(f"[bold]Output:[/bold] {target}")
 
+
 def _preview_album(
+    provider: MusicProvider,
     url: str,
     fmt: AudioFormat,
     directory: Path,
 ) -> None:
-    songs = download_album(url)
+    songs = provider.inspect_album(url)
 
     print("[bold]Dry run[/bold]")
+    print(f"[bold]Provider:[/bold] {provider.name}")
     print(f"[bold]Album:[/bold] {songs[0].album}")
     print(f"[bold]Artist:[/bold] {songs[0].artist}")
     print(f"[bold]Tracks:[/bold] {len(songs)}")
 
     for song in songs:
-        target = get_target_path(song, directory, f".{fmt.value}",)
+        target = get_target_path(song, directory, f".{fmt.value}")
         print(f"  → {target}")
 
 
 @app.command()
 def main(
-    url: Annotated[Optional[str], typer.Argument(help="YTMusic URL")] = None,
+    url: Annotated[
+        str | None,
+        typer.Argument(help="Track or album URL from a supported provider"),
+    ] = None,
     format: Annotated[
         AudioFormat,
         typer.Option("-f", "--format", help="Output audio format"),
     ] = AudioFormat.M4A,
     directory: Annotated[
         Path,
-        typer.Option("-d", "--directory", help="Output directory for organized library"),
+        typer.Option(
+            "-d", "--directory", help="Output directory for organized library"
+        ),
     ] = Path("."),
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview changes without downloading or modifying files"),
+        typer.Option(
+            "--dry-run",
+            help="Preview changes without downloading or modifying files",
+        ),
     ] = False,
     overwrite: Annotated[
         bool,
@@ -164,44 +187,42 @@ def main(
     ] = False,
     audit: Annotated[
         bool,
-        typer.Option("--audit", help="Audit the current library for misplaced or corrupted files"),
+        typer.Option(
+            "--audit",
+            help="Audit the current library for misplaced or corrupted files",
+        ),
     ] = False,
-):
+) -> None:
     if audit:
         run_audit(directory)
         raise typer.Exit(0)
     if not url:
-        print("[bold red]✖ Error:[/bold red] You must provide a YouTube Music URL or use the --audit flag.")
+        print(
+            "[bold red]✖ Error:[/bold red] "
+            "You must provide a URL or use the --audit flag."
+        )
         raise typer.Exit(1)
 
     try:
-        url_type = detect_url_type(url)
-
-        if url_type == UrlType.CHANNEL:
-            raise MusicShelfError(
-                "Channel URLs are not supported. Use a song or album URL instead."
-            )
-
-        if url_type == UrlType.PLAYLIST:
-            raise MusicShelfError(
-                "User playlists are not supported. Use an official album URL instead."
-            )
-
-        if url_type == UrlType.UNKNOWN:
-            raise MusicShelfError("Unrecognized YouTube Music URL.")
+        provider = get_provider(url)
+        url_type = provider.validate_url(url)
 
         if url_type == UrlType.ALBUM:
             if dry_run:
-                _preview_album(url, format, directory)
+                _preview_album(provider, url, format, directory)
             else:
                 with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
-                    _process_album(url, format, directory, Path(temp_dir), overwrite)
+                    _process_album(
+                        provider, url, format, directory, Path(temp_dir), overwrite
+                    )
         else:
             if dry_run:
-                _preview_song(url, format, directory)
+                _preview_song(provider, url, format, directory)
             else:
                 with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
-                    _process_song(url, format, directory, Path(temp_dir), overwrite)
+                    _process_song(
+                        provider, url, format, directory, Path(temp_dir), overwrite
+                    )
 
     except MusicShelfError as e:
         print(f"[red]Error:[/red] {e}")
