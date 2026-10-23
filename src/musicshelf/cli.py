@@ -26,7 +26,16 @@ def _process_song(
     fmt: AudioFormat,
     directory: Path,
     temp_dir: Path,
+    overwrite: bool,
 ) -> None:
+
+    preview = inspect_song(url)
+    target = get_target_path(preview, directory, f".{fmt.value}")
+
+    if target.exists() and not overwrite:
+        print(f"[yellow]Skipped:[/yellow] '{preview.title}' already exists in the library.")
+        return
+
     song = download_song(url, temp_dir)
 
     print(f"[bold]Title:[/bold] {song.title}")
@@ -54,6 +63,7 @@ def _process_album(
     fmt: AudioFormat,
     directory: Path,
     temp_dir: Path,
+    overwrite: bool,
 ) -> None:
     songs = download_album(url)
 
@@ -63,9 +73,21 @@ def _process_album(
     print(f"[bold]Artist:[/bold] {artist_name}")
     print(f"[bold]Tracks:[/bold] {len(songs)}")
 
-    songs = download_tracks(songs, temp_dir)
-
+    pending_songs = []
     for song in songs:
+        target = get_target_path(song, directory, f".{fmt.value}")
+        if target.exists() and not overwrite:
+            print(f"  [yellow]→ Skipped (already exists)):[/yellow] {song.title}")
+        else:
+            pending_songs.append(song)
+
+    if not pending_songs:
+        print("\n[green]All the tracks are already in the library..[/green]")
+        return
+
+    downloaded_songs = download_tracks(pending_songs, temp_dir)
+
+    for song in downloaded_songs:
         print(f"\n[bold]  → {song.title}[/bold]")
 
         if song.download_path:
@@ -129,6 +151,10 @@ def main(
         bool,
         typer.Option("--dry-run", help="Preview changes without downloading or modifying files"),
     ] = False,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Overwrite existing files in the library"),
+    ] = False,
 ):
     try:
         url_type = detect_url_type(url)
@@ -151,13 +177,13 @@ def main(
                 _preview_album(url, format, directory)
             else:
                 with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
-                    _process_album(url, format, directory, Path(temp_dir))
+                    _process_album(url, format, directory, Path(temp_dir), overwrite)
         else:
             if dry_run:
                 _preview_song(url, format, directory)
             else:
                 with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
-                    _process_song(url, format, directory, Path(temp_dir))
+                    _process_song(url, format, directory, Path(temp_dir), overwrite)
 
     except MusicShelfError as e:
         print(f"[red]Error:[/red] {e}")

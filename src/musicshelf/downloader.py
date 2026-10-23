@@ -7,7 +7,7 @@ from typing import Any
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from musicshelf.exceptions import ValidationError, MusicShelfError
+from musicshelf.exceptions import MusicShelfError, ValidationError
 from musicshelf.models import Song
 from musicshelf.validators import validate_song_metadata
 

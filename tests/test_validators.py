@@ -1,5 +1,7 @@
 import pytest
-from musicshelf.validators import detect_url_type, UrlType
+
+from musicshelf.validators import UrlType, detect_url_type
+
 
 @pytest.mark.parametrize(
     "url, expected",

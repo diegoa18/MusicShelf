@@ -1,8 +1,10 @@
+
 import pytest
-from pathlib import Path
-from musicshelf.organizer import get_target_path
-from musicshelf.models import Song
+
 from musicshelf.exceptions import MusicShelfError
+from musicshelf.models import Song
+from musicshelf.organizer import get_target_path
+
 
 @pytest.fixture
 def mock_song():
