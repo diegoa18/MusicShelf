@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
-from musicshelf.exceptions import ValidationError
+from musicshelf.exceptions import ValidationError, MusicShelfError
 from musicshelf.models import Song
 from musicshelf.validators import validate_song_metadata
 
@@ -30,8 +31,11 @@ def _sanitize_ext(ext: str | None) -> str:
     return "webm"
 
 def _extract_info(url: str) -> dict[str, Any]:
-    with YoutubeDL(_YTDLP_OPTIONS) as ydl:
-        return ydl.extract_info(url, download=False)
+    try:
+        with YoutubeDL(_YTDLP_OPTIONS) as ydl:
+            return ydl.extract_info(url, download=False)
+    except DownloadError as e:
+        raise MusicShelfError(f"Connection or metadata extraction failure: {e.msg}") from None
 
 def _build_song(info: dict[str, Any], url: str) -> Song:
     return Song(
@@ -53,9 +57,11 @@ def _download(url: str, temp_dir: Path) -> dict[str, Any]:
         "outtmpl": str(temp_dir / "%(id)s.%(ext)s"),
     }
 
-    with YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return info
+    try:
+        with YoutubeDL(options) as ydl:
+            return ydl.extract_info(url, download=True)
+    except DownloadError as e:
+        raise MusicShelfError(f"Connection or download failure: {e.msg}") from None
 
 def download_song(url: str, temp_dir: Path) -> Song:
     info = _extract_info(url)
