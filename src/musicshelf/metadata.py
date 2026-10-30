@@ -49,7 +49,7 @@ def _fetch_cover(url: str) -> tuple[bytes, str] | None:
             data = resp.read(_MAX_COVER_SIZE + 1)
             if len(data) > _MAX_COVER_SIZE:
                 return None
-        return _convert_to_jpeg(data)
+            return _convert_to_jpeg(data)
     except (urllib.error.URLError, TimeoutError, ValueError):
         return None
 
@@ -69,13 +69,22 @@ def _build_vorbis_picture_block(data: bytes, mime: str) -> bytes:
     return base64.b64encode(pic.write())
 
 
+def _get_date_value(song: Song) -> str | None:
+    if song.date:
+        return str(song.date)
+    if song.year:
+        return str(song.year)
+    return None
+
+
 def _write_vorbis_tags(audio: OggVorbis | OggOpus, song: Song) -> None:
     audio.clear()
     audio["title"] = [song.title]
     audio["artist"] = [song.artist]
     audio["album"] = [song.album]
-    if song.year:
-        audio["date"] = [str(song.year)]
+    date_val = _get_date_value(song)
+    if date_val:
+        audio["date"] = [date_val]
     if song.track:
         audio["tracknumber"] = [str(song.track)]
 
@@ -86,8 +95,9 @@ def _write_flac(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None
     audio["title"] = song.title
     audio["artist"] = song.artist
     audio["album"] = song.album
-    if song.year:
-        audio["date"] = str(song.year)
+    date_val = _get_date_value(song)
+    if date_val:
+        audio["date"] = date_val
     if song.track:
         audio["tracknumber"] = str(song.track)
     if cover:
@@ -106,8 +116,9 @@ def _write_mp3(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio.add(TIT2(encoding=3, text=[song.title]))
     audio.add(TPE1(encoding=3, text=[song.artist]))
     audio.add(TALB(encoding=3, text=[song.album]))
-    if song.year:
-        audio.add(TDRC(encoding=3, text=[str(song.year)]))
+    date_val = _get_date_value(song)
+    if date_val:
+        audio.add(TDRC(encoding=3, text=[date_val]))
     if song.track:
         audio.add(TRCK(encoding=3, text=[str(song.track)]))
     if cover:
@@ -141,8 +152,9 @@ def _write_m4a(song: Song, path: Path, cover: tuple[bytes, str] | None) -> None:
     audio["\xa9nam"] = [song.title]
     audio["\xa9ART"] = [song.artist]
     audio["\xa9alb"] = [song.album]
-    if song.year:
-        audio["\xa9day"] = [str(song.year)]
+    date_val = _get_date_value(song)
+    if date_val:
+        audio["\xa9day"] = [date_val]
     if song.track:
         audio["trkn"] = [(song.track, 0)]
     if cover:

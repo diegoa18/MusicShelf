@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,7 @@ class Song:
     source_id: str | None = None
     track: int | None = None
     year: int | None = None
+    date: str | None = None
     duration: int | None = None
     cover_url: str | None = None
     source_url: str | None = None

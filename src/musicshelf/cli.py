@@ -82,8 +82,11 @@ def _process_album(
 
     album_name = songs[0].album
     artist_name = songs[0].artist
+    album_year = songs[0].year
+
     print(f"[bold]Album:[/bold] {album_name}")
     print(f"[bold]Artist:[/bold] {artist_name}")
+    print(f"[bold]Year:[/bold] {album_year}")
     print(f"[bold]Tracks found:[/bold] {len(songs)}")
 
     pending_songs = []
@@ -177,12 +180,12 @@ def _preview_album(
     print(f"[bold]Provider:[/bold] {provider.name}")
     print(f"[bold]Album:[/bold] {songs[0].album}")
     print(f"[bold]Artist:[/bold] {songs[0].artist}")
+    print(f"[bold]Year:[/bold] {songs[0].year}")
     print(f"[bold]Tracks:[/bold] {len(songs)}")
 
     for song in songs:
         target = get_target_path(song, directory, f".{fmt.value}")
         print(f"  → {target}")
-
 
 @app.command()
 def main(
