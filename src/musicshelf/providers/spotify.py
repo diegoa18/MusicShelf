@@ -30,30 +30,80 @@ def _sanitize_ext(ext: str | None) -> str:
     return "webm"
 
 
-def _fetch_embed_entity(kind: str, item_id: str) -> dict[str, Any]:
-    """Read public metadata from Spotify's standard embed widget."""
-    url = f"https://open.spotify.com/embed/{kind}/{item_id}"
+def _extract_year_from_html(html: str) -> int | None:
+    match = re.search(r'<meta\s+property=["\']music:release_date["\']\s+content=["\'](\d{4})', html, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+
+    match = re.search(r'"datePublished"\s*:\s*"(\d{4})', html)
+    if match:
+        return int(match.group(1))
+
+    match = re.search(r'content=["\'](\d{4})-\d{2}-\d{2}', html)
+    if match:
+        return int(match.group(1))
+
+    return None
+
+
+def _fetch_entity_and_year(kind: str, item_id: str) -> tuple[dict[str, Any], int | None]:
+    url = f"https://open.spotify.com/{kind}/{item_id}"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    html = ""
+    year = None
+
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             html = resp.read().decode("utf-8", errors="replace")
-    except URLError as e:
-        raise MusicShelfError(f"Failed to reach Spotify embed endpoint: {e}") from None
+            year = _extract_year_from_html(html)
+    except URLError:
+        pass
 
-    match = _NEXT_DATA_RE.search(html)
-    if not match:
-        raise MusicShelfError("Could not parse public metadata from Spotify embed.")
-
+    embed_url = f"https://open.spotify.com/embed/{kind}/{item_id}"
+    embed_req = urllib.request.Request(embed_url, headers={"User-Agent": _USER_AGENT})
     try:
-        payload = json.loads(match.group(1))
-        entity = payload["props"]["pageProps"]["state"]["data"]["entity"]
-        if not isinstance(entity, dict):
-            raise KeyError("Invalid entity structure")
-        return entity
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        raise MusicShelfError(
-            "Spotify embed data format changed or is unavailable."
-        ) from e
+        with urllib.request.urlopen(embed_req, timeout=15) as resp:
+            embed_html = resp.read().decode("utf-8", errors="replace")
+            match = _NEXT_DATA_RE.search(embed_html)
+            if match:
+                payload = json.loads(match.group(1))
+                entity = payload["props"]["pageProps"]["state"]["data"]["entity"]
+                if isinstance(entity, dict):
+                    if not year:
+                        # Deep search in embed entity if HTML meta didn't catch it
+                        year = _extract_year_fallback(entity)
+                    return entity, year
+    except Exception:
+        pass
+
+    if not html:
+        raise MusicShelfError("Could not reach Spotify endpoint.")
+
+    return {}, year
+
+
+def _extract_year_fallback(entity: dict[str, Any]) -> int | None:
+    targets = [entity]
+    if isinstance(entity.get("album"), dict):
+        targets.append(entity["album"])
+
+    for target in targets:
+        for key in ("releaseDate", "release_date", "date", "year", "originalReleaseDate", "release"):
+            val = target.get(key)
+            if isinstance(val, dict):
+                for sub_val in val.values():
+                    if isinstance(sub_val, str):
+                        match = re.search(r"\b(19\d{2}|20\d{2})\b", sub_val)
+                        if match:
+                            return int(match.group(1))
+            elif isinstance(val, str):
+                match = re.search(r"\b(19\d{2}|20\d{2})\b", val)
+                if match:
+                    return int(match.group(1))
+            elif isinstance(val, int) and 1900 <= val <= 2100:
+                return val
+
+    return None
 
 
 def _extract_cover_url(entity: dict[str, Any]) -> str | None:
@@ -64,17 +114,6 @@ def _extract_cover_url(entity: dict[str, Any]) -> str | None:
         last = sources[-1]
         if isinstance(last, dict):
             return last.get("url")
-    return None
-
-
-def _extract_year(entity: dict[str, Any]) -> int | None:
-    release_date = entity.get("releaseDate")
-    if isinstance(release_date, dict):
-        iso = release_date.get("isoString") or ""
-        if len(iso) >= 4 and iso[:4].isdigit():
-            return int(iso[:4])
-    elif isinstance(release_date, str) and len(release_date) >= 4 and release_date[:4].isdigit():
-        return int(release_date[:4])
     return None
 
 
@@ -134,7 +173,7 @@ class SpotifyProvider(MusicProvider):
 
     def inspect_song(self, url: str) -> Song:
         track_id = self._extract_id(url)
-        entity = _fetch_embed_entity("track", track_id)
+        entity, year_val = _fetch_entity_and_year("track", track_id)
 
         title = entity.get("title") or entity.get("name") or "Unknown"
         artists = entity.get("artists") or []
@@ -152,7 +191,8 @@ class SpotifyProvider(MusicProvider):
             album=entity.get("subtitle") or "Spotify Singles",
             source_id=entity.get("id") or track_id,
             track=1,
-            year=_extract_year(entity),
+            year=year_val,
+            date=str(year_val) if year_val else None,
             duration=duration_ms // 1000 if duration_ms else None,
             cover_url=_extract_cover_url(entity),
             source_url=url,
@@ -160,16 +200,27 @@ class SpotifyProvider(MusicProvider):
 
     def inspect_album(self, url: str) -> list[Song]:
         album_id = self._extract_id(url)
-        entity = _fetch_embed_entity("album", album_id)
+        entity, album_year = _fetch_entity_and_year("album", album_id)
 
         album_name = entity.get("title") or entity.get("name") or "Unknown Album"
         album_artist = entity.get("subtitle") or "Unknown"
         cover_url = _extract_cover_url(entity)
-        year = _extract_year(entity)
 
         track_list = entity.get("trackList") or []
         if not track_list:
             raise ValidationError("No tracks found in Spotify album.")
+
+        if not album_year and track_list:
+            first_item = track_list[0]
+            uri = first_item.get("uri") or ""
+            if ":" in uri:
+                first_track_id = uri.split(":")[-1]
+                try:
+                    track_entity, track_year = _fetch_entity_and_year("track", first_track_id)
+                    if track_year:
+                        album_year = track_year
+                except Exception:
+                    pass
 
         songs: list[Song] = []
         for idx, item in enumerate(track_list, start=1):
@@ -186,7 +237,8 @@ class SpotifyProvider(MusicProvider):
                     album=album_name,
                     source_id=track_id,
                     track=idx,
-                    year=year,
+                    year=album_year,
+                    date=str(album_year) if album_year else None,
                     duration=duration_ms // 1000 if duration_ms else None,
                     cover_url=cover_url,
                     source_url=f"https://open.spotify.com/track/{track_id}",
