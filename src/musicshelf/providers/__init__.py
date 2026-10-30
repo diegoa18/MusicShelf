@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from musicshelf.exceptions import ValidationError
+from musicshelf.providers.bandcamp import BandcampProvider
 from musicshelf.providers.base import MusicProvider, UrlType
 from musicshelf.providers.soundcloud import SoundCloudProvider
 from musicshelf.providers.youtube import YouTubeMusicProvider
@@ -8,6 +9,7 @@ from musicshelf.providers.youtube import YouTubeMusicProvider
 _PROVIDERS: tuple[MusicProvider, ...] = (
     YouTubeMusicProvider(),
     SoundCloudProvider(),
+    BandcampProvider(),
 )
 
 def get_provider(url: str) -> MusicProvider:
@@ -22,9 +24,10 @@ def get_provider(url: str) -> MusicProvider:
     )
 
 __all__ = [
+    "BandcampProvider",
     "MusicProvider",
-    "UrlType",
     "SoundCloudProvider",
+    "UrlType",
     "YouTubeMusicProvider",
     "get_provider",
 ]
