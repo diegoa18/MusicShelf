@@ -45,3 +45,15 @@ uv run musicshelf --audit -d ~/Music
   - Songs: `music.youtube.com/watch?v=...`
   - Albums: `music.youtube.com/playlist?list=OLAK5uy_...`
   *(User playlists and channels are not supported)*.
+
+- **SoundCloud**:
+  - Tracks: `soundcloud.com/artist/track`
+  - Sets/Albums: `soundcloud.com/artist/sets/...`
+
+- **Bandcamp**:
+  - Tracks: `artist.bandcamp.com/track/...`
+  - Albums: `artist.bandcamp.com/album/...`
+
+- **Spotify (Hybrid)**:
+  - Tracks: `open.spotify.com/track/...`
+  - Albums: `open.spotify.com/album/...`
