@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from musicshelf.exceptions import ValidationError
 from musicshelf.providers.base import MusicProvider, UrlType
+from musicshelf.providers.soundcloud import SoundCloudProvider
 from musicshelf.providers.youtube import YouTubeMusicProvider
 
 _PROVIDERS: tuple[MusicProvider, ...] = (
     YouTubeMusicProvider(),
+    SoundCloudProvider(),
 )
-
 
 def get_provider(url: str) -> MusicProvider:
     """Resolve and return the matching MusicProvider for a URL."""
@@ -20,10 +21,10 @@ def get_provider(url: str) -> MusicProvider:
         f"Unsupported URL or provider. Currently supported: {supported}."
     )
 
-
 __all__ = [
     "MusicProvider",
     "UrlType",
+    "SoundCloudProvider",
     "YouTubeMusicProvider",
     "get_provider",
 ]
