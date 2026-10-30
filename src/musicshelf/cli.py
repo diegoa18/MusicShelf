@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 from rich import print
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from musicshelf.auditor import run_audit
 from musicshelf.converter import AudioFormat, convert
@@ -43,7 +44,7 @@ def _process_song(
     with console.status(
         f"[bold cyan]Downloading audio from {provider.name}...[/bold cyan]"
     ):
-        provider.download_track(song, temp_dir)
+        provider.download_tracks([song], temp_dir)
 
     print(f"[bold]Title:[/bold] {song.title}")
     print(f"[bold]Artist:[/bold] {song.artist}")
@@ -83,7 +84,7 @@ def _process_album(
     artist_name = songs[0].artist
     print(f"[bold]Album:[/bold] {album_name}")
     print(f"[bold]Artist:[/bold] {artist_name}")
-    print(f"[bold]Tracks:[/bold] {len(songs)}")
+    print(f"[bold]Tracks found:[/bold] {len(songs)}")
 
     pending_songs = []
     for song in songs:
@@ -97,25 +98,50 @@ def _process_album(
         print("\n[green]All tracks are already in the library.[/green]")
         return
 
-    with console.status(
-        f"[bold cyan]Downloading {len(pending_songs)} pending tracks "
-        f"from {provider.name}...[/bold cyan]"
-    ):
-        downloaded_songs = provider.download_tracks(pending_songs, temp_dir)
+    downloaded_songs = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"[green]Downloading from {provider.name}...", total=len(pending_songs))
 
+        for song in pending_songs:
+            progress.update(task, description=f"[green]Downloading: {song.title}")
+            try:
+                provider.download_tracks([song], temp_dir)
+                if song.download_path and song.download_path.exists():
+                    downloaded_songs.append(song)
+                else:
+                    print(f"\n  [yellow]→ Warning: Download path missing for '{song.title}'[/yellow]")
+            except Exception as e:
+                print(f"\n  [yellow]→ Warning: Failed to download '{song.title}': {e}[/yellow]")
+            progress.advance(task)
+
+    if not downloaded_songs:
+        print("\n[bold red]Error: No tracks could be downloaded from this album.[/bold red]")
+        return
+
+    print("\n[bold cyan]Processing and organizing tracks...[/bold cyan]")
     for song in downloaded_songs:
         print(f"\n[bold]  → {song.title}[/bold]")
+        try:
+            if song.download_path:
+                with console.status(f"[bold cyan]Converting to {fmt.value}...[/bold cyan]"):
+                    song.final_path = convert(song.download_path, fmt, temp_dir)
 
-        if song.download_path:
-            with console.status(f"[bold cyan]Converting to {fmt.value}...[/bold cyan]"):
-                song.final_path = convert(song.download_path, fmt, temp_dir)
+            if song.final_path:
+                write_metadata(song)
 
-        if song.final_path:
-            write_metadata(song)
+            if song.final_path:
+                target = organize(song, directory)
+                print(f"  [green]→ {target}[/green]")
+        except Exception as e:
+            print(f"  [red]→ Failed to process {song.title}: {e}[/red]")
 
-        if song.final_path:
-            target = organize(song, directory)
-            print(f"  [green]→ {target}[/green]")
+    print("\n[bold green]✔ Album processing complete![/bold green]")
 
 
 def _preview_song(
