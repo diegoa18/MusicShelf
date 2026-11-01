@@ -7,7 +7,13 @@ from typing import Annotated
 import typer
 from rich import print
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 
 from musicshelf.auditor import run_audit
 from musicshelf.converter import AudioFormat, convert
@@ -147,6 +153,109 @@ def _process_album(
     print("\n[bold green]✔ Album processing complete![/bold green]")
 
 
+def _process_playlist(
+    provider: MusicProvider,
+    url: str,
+    fmt: AudioFormat,
+    directory: Path,
+    temp_dir: Path,
+    overwrite: bool,
+) -> None:
+    with console.status(
+        f"[bold cyan]Fetching playlist metadata from {provider.name}...[/bold cyan]"
+    ):
+        songs = provider.inspect_playlist(url)
+
+    if not songs:
+        print("[yellow]No tracks found in this playlist.[/yellow]")
+        return
+
+    artists = {song.artist for song in songs}
+    albums = {(song.artist, song.album) for song in songs}
+
+    print(f"[bold]Playlist:[/bold] {url}")
+    print(f"[bold]Tracks found:[/bold] {len(songs)}")
+    print(f"[bold]Artists:[/bold] {len(artists)}")
+    print(f"[bold]Albums:[/bold] {len(albums)}")
+
+    pending_songs = []
+    for song in songs:
+        target = get_target_path(song, directory, f".{fmt.value}")
+        if target.exists() and not overwrite:
+            print(f"  [yellow]→ Skipped (already exists):[/yellow] {song.title}")
+        else:
+            pending_songs.append(song)
+
+    if not pending_songs:
+        print("\n[green]All tracks are already in the library.[/green]")
+        return
+
+    downloaded_songs = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(
+            f"[green]Downloading from {provider.name}...",
+            total=len(pending_songs),
+        )
+
+        for song in pending_songs:
+            progress.update(task, description=f"[green]Downloading: {song.title}")
+            try:
+                provider.download_tracks([song], temp_dir)
+                if song.download_path and song.download_path.exists():
+                    downloaded_songs.append(song)
+                else:
+                    print(
+                        f"\n  [yellow]→ Warning: Download path missing for "
+                        f"'{song.title}'[/yellow]"
+                    )
+            except MusicShelfError as e:
+                print(
+                    f"\n  [yellow]→ Warning: Failed to download "
+                    f"'{song.title}': {e}[/yellow]"
+                )
+            except Exception as e:
+                print(
+                    f"\n  [yellow]→ Warning: Failed to download "
+                    f"'{song.title}': {e}[/yellow]"
+                )
+            finally:
+                progress.advance(task)
+
+    if not downloaded_songs:
+        print(
+            "\n[bold red]Error: No tracks could be downloaded from this "
+            "playlist.[/bold red]"
+        )
+        return
+
+    print("\n[bold cyan]Processing and organizing tracks...[/bold cyan]")
+    for song in downloaded_songs:
+        print(f"\n[bold]  → {song.artist} — {song.album}: {song.title}[/bold]")
+        try:
+            if song.download_path:
+                with console.status(f"[bold cyan]Converting to {fmt.value}...[/bold cyan]"):
+                    song.final_path = convert(song.download_path, fmt, temp_dir)
+
+            if song.final_path:
+                write_metadata(song)
+
+            if song.final_path:
+                target = organize(song, directory)
+                print(f"  [green]→ {target}[/green]")
+        except MusicShelfError as e:
+            print(f"  [red]→ Failed to process {song.title}: {e}[/red]")
+        except Exception as e:
+            print(f"  [red]→ Failed to process {song.title}: {e}[/red]")
+
+    print("\n[bold green]✔ Playlist processing complete![/bold green]")
+
+
 def _preview_song(
     provider: MusicProvider,
     url: str,
@@ -187,11 +296,34 @@ def _preview_album(
         target = get_target_path(song, directory, f".{fmt.value}")
         print(f"  → {target}")
 
+
+def _preview_playlist(
+    provider: MusicProvider,
+    url: str,
+    fmt: AudioFormat,
+    directory: Path,
+) -> None:
+    songs = provider.inspect_playlist(url)
+
+    artists = {song.artist for song in songs}
+    albums = {(song.artist, song.album) for song in songs}
+
+    print("[bold]Dry run[/bold]")
+    print(f"[bold]Provider:[/bold] {provider.name}")
+    print(f"[bold]Tracks:[/bold] {len(songs)}")
+    print(f"[bold]Artists:[/bold] {len(artists)}")
+    print(f"[bold]Albums:[/bold] {len(albums)}")
+
+    for song in songs:
+        target = get_target_path(song, directory, f".{fmt.value}")
+        console.print(f"  → {target}", soft_wrap=True)
+
+
 @app.command()
 def main(
     url: Annotated[
         str | None,
-        typer.Argument(help="Track or album URL from a supported provider"),
+        typer.Argument(help="Track, album, or playlist URL from a supported provider"),
     ] = None,
     format: Annotated[
         AudioFormat,
@@ -242,6 +374,14 @@ def main(
             else:
                 with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
                     _process_album(
+                        provider, url, format, directory, Path(temp_dir), overwrite
+                    )
+        elif url_type == UrlType.PLAYLIST:
+            if dry_run:
+                _preview_playlist(provider, url, format, directory)
+            else:
+                with tempfile.TemporaryDirectory(prefix="musicshelf-") as temp_dir:
+                    _process_playlist(
                         provider, url, format, directory, Path(temp_dir), overwrite
                     )
         else:

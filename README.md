@@ -36,6 +36,7 @@ uv run musicshelf <URL> [OPTIONS]
 
 ```bash
 uv run musicshelf "https://music.youtube.com/watch?v=..." -f flac
+uv run musicshelf "https://open.spotify.com/playlist/..." -f flac
 uv run musicshelf --audit -d ~/Music
 ```
 
@@ -57,3 +58,10 @@ uv run musicshelf --audit -d ~/Music
 - **Spotify (Hybrid)**:
   - Tracks: `open.spotify.com/track/...`
   - Albums: `open.spotify.com/album/...`
+  - Playlists: `open.spotify.com/playlist/...`
+
+Playlist tracks are always organized by their own `artist/album` metadata, never
+inside a folder named after the playlist. Spotify's public embed and Web Player
+backend expose up to the first 100 tracks of a playlist, including the album,
+release date and track number for each one. If that metadata is unavailable,
+the track is stored under `Unknown Album` instead of the playlist name.

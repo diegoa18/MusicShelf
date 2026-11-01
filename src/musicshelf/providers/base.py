@@ -5,6 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlparse
 
+from musicshelf.exceptions import ValidationError
 from musicshelf.models import Song
 
 
@@ -51,6 +52,10 @@ class MusicProvider(ABC):
     @abstractmethod
     def inspect_album(self, url: str) -> list[Song]:
         """Extract and validate formal metadata for an entire album."""
+
+    def inspect_playlist(self, url: str) -> list[Song]:
+        """Extract and validate formal metadata for every track in a playlist."""
+        raise ValidationError("Playlists are not supported by this provider.")
 
     @abstractmethod
     def download_tracks(self, songs: list[Song], temp_dir: Path) -> list[Song]:
