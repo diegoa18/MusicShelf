@@ -69,3 +69,7 @@ inside a folder named after the playlist. Spotify's public embed and Web Player
 backend expose up to the first 100 tracks of a playlist, including the album,
 release date and track number for each one. If that metadata is unavailable,
 the track is stored under `Unknown Album` instead of the playlist name.
+
+Spotify tracks are resolved through a five-result YouTube search. When the
+track duration is known, MusicShelf downloads the first candidate within
+±5 seconds of it; if no candidate matches, it falls back to the first result.

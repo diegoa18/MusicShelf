@@ -25,6 +25,8 @@ _NEXT_DATA_RE = re.compile(
 _UNKNOWN_ALBUM = "Unknown Album"
 _UNKNOWN_ARTIST = "Unknown"
 _PLAYLIST_FETCH_WORKERS = 8
+_YOUTUBE_SEARCH_RESULTS = 5
+_DURATION_TOLERANCE_SECONDS = 5
 
 # The embed page provides an anonymous Web Player token. Its pathfinder
 # endpoint is the same backend the public embed uses and, unlike the embed
@@ -43,6 +45,41 @@ def _sanitize_ext(ext: str | None) -> str:
     if ext and ext.lower() in _SAFE:
         return ext.lower()
     return "webm"
+
+
+def _coerce_duration(value: Any) -> float | None:
+    """Normalize a yt-dlp duration value to seconds."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _select_candidate(
+    candidates: list[dict[str, Any]], duration: int | None
+) -> dict[str, Any] | None:
+    """Pick the first candidate within tolerance, else the first result."""
+    if not candidates:
+        return None
+    if duration is None:
+        return candidates[0]
+
+    expected = float(duration)
+    for candidate in candidates:
+        candidate_duration = _coerce_duration(candidate.get("duration"))
+        if candidate_duration is None:
+            continue
+        if abs(candidate_duration - expected) <= _DURATION_TOLERANCE_SECONDS:
+            return candidate
+
+    # A duration mismatch is not a reason to block the download entirely.
+    return candidates[0]
 
 
 def _extract_year_from_html(html: str) -> int | None:
@@ -724,6 +761,7 @@ class SpotifyProvider(MusicProvider):
             "quiet": True,
             "no_warnings": True,
             "format": "bestaudio/best",
+            "noplaylist": True,
             "outtmpl": str(temp_dir / "%(id)s.%(ext)s"),
         }
 
@@ -733,18 +771,43 @@ class SpotifyProvider(MusicProvider):
                     if not song.title or not song.artist:
                         continue
 
-                    query = f"ytsearch1:{song.artist} - {song.title} official audio"
-                    info = ydl.extract_info(query, download=True)
-                    if not info:
+                    query = (
+                        f"ytsearch{_YOUTUBE_SEARCH_RESULTS}:"
+                        f"{song.artist} - {song.title} official audio"
+                    )
+                    search_info = ydl.extract_info(query, download=False)
+                    if not isinstance(search_info, dict):
                         continue
 
-                    entries = info.get("entries")
-                    entry = entries[0] if entries else info
-                    yt_id = entry.get("id")
-                    ext = _sanitize_ext(entry.get("ext"))
+                    raw_entries = search_info.get("entries")
+                    if not isinstance(raw_entries, list):
+                        continue
+                    candidates = [
+                        entry for entry in raw_entries if isinstance(entry, dict)
+                    ]
+                    selected = _select_candidate(candidates, song.duration)
+                    if selected is None:
+                        continue
 
-                    if yt_id:
-                        song.download_path = temp_dir / f"{yt_id}.{ext}"
+                    selected_id = selected.get("id")
+                    if not isinstance(selected_id, str) or not selected_id:
+                        continue
+
+                    video_url = selected.get("webpage_url") or selected.get("url")
+                    if not isinstance(video_url, str) or not video_url:
+                        video_url = f"https://www.youtube.com/watch?v={selected_id}"
+
+                    info = ydl.extract_info(video_url, download=True)
+                    if not isinstance(info, dict):
+                        continue
+
+                    raw_id = info.get("id")
+                    yt_id = (
+                        raw_id if isinstance(raw_id, str) and raw_id else selected_id
+                    )
+                    raw_ext = info.get("ext") or selected.get("ext")
+                    ext = _sanitize_ext(raw_ext if isinstance(raw_ext, str) else None)
+                    song.download_path = temp_dir / f"{yt_id}.{ext}"
         except DownloadError as e:
             raise MusicShelfError(
                 f"Failed to resolve audio stream from YouTube: {e.msg}"
