@@ -9,13 +9,7 @@ from typing import Annotated
 import typer
 from rich import print
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-)
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 
 from musicshelf.auditor import run_audit
 from musicshelf.converter import AudioFormat, convert
@@ -77,6 +71,48 @@ def _print_summary(downloaded: int, processed: int, skipped: int) -> None:
     )
 
 
+def _download_batch(
+    provider: MusicProvider, songs: list[Song], work_dir: Path
+) -> list[Song]:
+    """Download a pending batch and return the songs with usable files."""
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        transient=True,
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            f"[green]Downloading {len(songs)} track(s) from {provider.name}...",
+            total=len(songs),
+        )
+
+        def update_progress(song: Song) -> None:
+            progress.update(task, description=f"[green]Downloaded: {song.title}")
+            progress.advance(task)
+
+        try:
+            downloaded_songs = provider.download_tracks(
+                songs,
+                work_dir,
+                on_progress=update_progress,
+            )
+        except MusicShelfError as e:
+            downloaded_songs = songs
+            print(f"\n  [yellow]→ Warning: Download failed: {e}[/yellow]")
+        except Exception as e:  # noqa: BLE001 - provider failures are non-fatal
+            downloaded_songs = songs
+            print(f"\n  [yellow]→ Warning: Download failed: {e}[/yellow]")
+
+    downloaded: list[Song] = []
+    for song in downloaded_songs:
+        if song.download_path and song.download_path.exists():
+            downloaded.append(song)
+        else:
+            print(f"\n  [yellow]→ Warning: Download failed for '{song.title}'[/yellow]")
+    return downloaded
+
+
 def _process_song(
     provider: MusicProvider,
     url: str,
@@ -108,9 +144,14 @@ def _process_song(
             ):
                 provider.download_tracks([song], work_dir)
 
-            if song.download_path and song.download_path.exists():
-                downloaded = 1
+            if not song.download_path or not song.download_path.exists():
+                print(
+                    "[bold red]Error: No audio could be downloaded for this "
+                    "track.[/bold red]"
+                )
+                return
 
+            downloaded = 1
             print(f"[bold]Title:[/bold] {song.title}")
             print(f"[bold]Artist:[/bold] {song.artist}")
             print(f"[bold]Album:[/bold] {song.album}")
@@ -166,39 +207,10 @@ def _process_album(
         _print_summary(0, 0, skipped)
         return
 
-    downloaded_songs: list[Song] = []
     processed = 0
 
     with _temporary_workdir(temp_dir) as work_dir:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                f"[green]Downloading from {provider.name}...",
-                total=len(pending_songs),
-            )
-
-            for song in pending_songs:
-                progress.update(task, description=f"[green]Downloading: {song.title}")
-                try:
-                    provider.download_tracks([song], work_dir)
-                    if song.download_path and song.download_path.exists():
-                        downloaded_songs.append(song)
-                    else:
-                        print(
-                            f"\n  [yellow]→ Warning: Download path missing for "
-                            f"'{song.title}'[/yellow]"
-                        )
-                except Exception as e:
-                    print(
-                        f"\n  [yellow]→ Warning: Failed to download "
-                        f"'{song.title}': {e}[/yellow]"
-                    )
-                progress.advance(task)
+        downloaded_songs = _download_batch(provider, pending_songs, work_dir)
 
         if not downloaded_songs:
             print(
@@ -264,45 +276,10 @@ def _process_playlist(
         _print_summary(0, 0, skipped)
         return
 
-    downloaded_songs: list[Song] = []
     processed = 0
 
     with _temporary_workdir(temp_dir) as work_dir:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                f"[green]Downloading from {provider.name}...",
-                total=len(pending_songs),
-            )
-
-            for song in pending_songs:
-                progress.update(task, description=f"[green]Downloading: {song.title}")
-                try:
-                    provider.download_tracks([song], work_dir)
-                    if song.download_path and song.download_path.exists():
-                        downloaded_songs.append(song)
-                    else:
-                        print(
-                            f"\n  [yellow]→ Warning: Download path missing for "
-                            f"'{song.title}'[/yellow]"
-                        )
-                except MusicShelfError as e:
-                    print(
-                        f"\n  [yellow]→ Warning: Failed to download "
-                        f"'{song.title}': {e}[/yellow]"
-                    )
-                except Exception as e:
-                    print(
-                        f"\n  [yellow]→ Warning: Failed to download "
-                        f"'{song.title}': {e}[/yellow]"
-                    )
-                finally:
-                    progress.advance(task)
+        downloaded_songs = _download_batch(provider, pending_songs, work_dir)
 
         if not downloaded_songs:
             print(

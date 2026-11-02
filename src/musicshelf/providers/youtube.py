@@ -171,7 +171,11 @@ class YouTubeMusicProvider(MusicProvider):
 
         return songs
 
-    def download_tracks(self, songs: list[Song], temp_dir: Path) -> list[Song]:
+    def download_track(self, song: Song, temp_dir: Path) -> Song:
+        song.download_path = None
+        if not song.source_url or not song.source_id:
+            return song
+
         options = {
             **_YTDLP_OPTIONS,
             "format": "bestaudio/best",
@@ -180,16 +184,11 @@ class YouTubeMusicProvider(MusicProvider):
 
         try:
             with YoutubeDL(options) as ydl:
-                for song in songs:
-                    if not song.source_url or not song.source_id:
-                        continue
-                    info = ydl.extract_info(song.source_url, download=True)
-                    raw_ext = info.get("ext") if isinstance(info, dict) else None
-                    ext = _sanitize_ext(raw_ext)
-                    song.download_path = temp_dir / f"{song.source_id}.{ext}"
+                info = ydl.extract_info(song.source_url, download=True)
+            raw_ext = info.get("ext") if isinstance(info, dict) else None
+            ext = _sanitize_ext(raw_ext)
+            song.download_path = temp_dir / f"{song.source_id}.{ext}"
         except DownloadError as e:
-            raise MusicShelfError(
-                f"Connection or download failure: {e.msg}"
-            ) from None
+            raise MusicShelfError(f"Connection or download failure: {e.msg}") from None
 
-        return songs
+        return song

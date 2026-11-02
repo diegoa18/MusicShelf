@@ -17,10 +17,12 @@ class FakeYoutubeDL:
     downloaded_id: ClassVar[str] = "chosen"
     calls: ClassVar[list[tuple[str, bool]]] = []
     downloads: ClassVar[list[str]] = []
+    instances: ClassVar[list[object]] = []
     error: ClassVar[str | None] = None
 
     def __init__(self, options: dict[str, Any]) -> None:
         self.options = options
+        type(self).instances.append(self)
 
     def __enter__(self) -> Self:
         return self
@@ -47,6 +49,7 @@ def fake_ytdlp(monkeypatch: pytest.MonkeyPatch) -> type[FakeYoutubeDL]:
     FakeYoutubeDL.downloaded_id = "chosen"
     FakeYoutubeDL.calls = []
     FakeYoutubeDL.downloads = []
+    FakeYoutubeDL.instances = []
     FakeYoutubeDL.error = None
     monkeypatch.setattr(spotify, "YoutubeDL", FakeYoutubeDL)
     return FakeYoutubeDL
@@ -72,9 +75,9 @@ def test_selects_candidate_matching_song_duration(
     fake_ytdlp.downloaded_id = "matching"
 
     song = _song(200)
-    result = SpotifyProvider().download_tracks([song], tmp_path)
+    result = SpotifyProvider().download_track(song, tmp_path)
 
-    assert result == [song]
+    assert result == song
     assert song.download_path == tmp_path / "matching.webm"
     assert fake_ytdlp.downloads == ["https://www.youtube.com/watch?v=matching"]
     assert fake_ytdlp.calls[0] == (
@@ -93,7 +96,7 @@ def test_falls_back_to_first_candidate_when_none_matches(
     fake_ytdlp.downloaded_id = "first"
 
     song = _song(150)
-    SpotifyProvider().download_tracks([song], tmp_path)
+    SpotifyProvider().download_track(song, tmp_path)
 
     assert song.download_path == tmp_path / "first.webm"
     assert fake_ytdlp.downloads == ["https://www.youtube.com/watch?v=first"]
@@ -109,7 +112,7 @@ def test_falls_back_to_first_candidate_without_song_duration(
     fake_ytdlp.downloaded_id = "first"
 
     song = _song(None)
-    SpotifyProvider().download_tracks([song], tmp_path)
+    SpotifyProvider().download_track(song, tmp_path)
 
     assert song.download_path == tmp_path / "first.webm"
 
@@ -125,7 +128,7 @@ def test_ignores_candidates_without_usable_duration(
     fake_ytdlp.downloaded_id = "matching"
 
     song = _song(200)
-    SpotifyProvider().download_tracks([song], tmp_path)
+    SpotifyProvider().download_track(song, tmp_path)
 
     assert song.download_path == tmp_path / "matching.webm"
     assert fake_ytdlp.downloads == ["https://www.youtube.com/watch?v=matching"]
@@ -137,11 +140,24 @@ def test_empty_search_results_do_not_raise(
     fake_ytdlp.entries = []
     song = _song(200)
 
-    result = SpotifyProvider().download_tracks([song], tmp_path)
+    result = SpotifyProvider().download_track(song, tmp_path)
 
-    assert result == [song]
+    assert result == song
     assert song.download_path is None
     assert fake_ytdlp.downloads == []
+
+
+def test_each_download_creates_its_own_youtube_dl(
+    fake_ytdlp: type[FakeYoutubeDL], tmp_path: Path
+) -> None:
+    fake_ytdlp.entries = [{"id": "chosen", "duration": 200}]
+    provider = SpotifyProvider()
+
+    provider.download_track(_song(200), tmp_path)
+    provider.download_track(_song(200), tmp_path)
+
+    assert len(fake_ytdlp.instances) == 2
+    assert fake_ytdlp.instances[0] is not fake_ytdlp.instances[1]
 
 
 def test_download_error_is_wrapped(
@@ -154,6 +170,6 @@ def test_download_error_is_wrapped(
         MusicShelfError,
         match="Failed to resolve audio stream from YouTube: boom",
     ):
-        SpotifyProvider().download_tracks([song], tmp_path)
+        SpotifyProvider().download_track(song, tmp_path)
 
     assert song.download_path is None

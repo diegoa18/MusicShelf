@@ -73,3 +73,9 @@ the track is stored under `Unknown Album` instead of the playlist name.
 Spotify tracks are resolved through a five-result YouTube search. When the
 track duration is known, MusicShelf downloads the first candidate within
 ±5 seconds of it; if no candidate matches, it falls back to the first result.
+
+Album and playlist batches are downloaded concurrently with a small pool of up
+to four workers orchestrated by the provider base class. Each worker owns its
+own yt-dlp instance; a track that fails to resolve or download is skipped
+without stopping the rest of the batch. The CLI shows live progress as each
+worker completes.

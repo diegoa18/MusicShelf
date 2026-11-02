@@ -16,9 +16,7 @@ from musicshelf.exceptions import MusicShelfError, ValidationError
 from musicshelf.models import Song
 from musicshelf.providers.base import MusicProvider, UrlType
 
-_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-)
+_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 _NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>'
 )
@@ -83,7 +81,11 @@ def _select_candidate(
 
 
 def _extract_year_from_html(html: str) -> int | None:
-    match = re.search(r'<meta\s+property=["\']music:release_date["\']\s+content=["\'](\d{4})', html, re.IGNORECASE)
+    match = re.search(
+        r'<meta\s+property=["\']music:release_date["\']\s+content=["\'](\d{4})',
+        html,
+        re.IGNORECASE,
+    )
     if match:
         return int(match.group(1))
 
@@ -98,7 +100,9 @@ def _extract_year_from_html(html: str) -> int | None:
     return None
 
 
-def _fetch_entity_and_year(kind: str, item_id: str) -> tuple[dict[str, Any], int | None]:
+def _fetch_entity_and_year(
+    kind: str, item_id: str
+) -> tuple[dict[str, Any], int | None]:
     url = f"https://open.spotify.com/{kind}/{item_id}"
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     html = ""
@@ -126,9 +130,7 @@ def _fetch_entity_and_year(kind: str, item_id: str) -> tuple[dict[str, Any], int
                     .get("settings", {})
                 )
                 session = (
-                    settings.get("session")
-                    if isinstance(settings, dict)
-                    else None
+                    settings.get("session") if isinstance(settings, dict) else None
                 )
                 if isinstance(session, dict):
                     token = session.get("accessToken")
@@ -190,9 +192,7 @@ def _fetch_pathfinder_playlist(playlist_id: str) -> dict[str, dict[str, Any]]:
 
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.loads(
-                response.read().decode("utf-8", errors="replace")
-            )
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
     except Exception:
         return {}
 
@@ -234,9 +234,7 @@ def _fetch_pathfinder_playlist(playlist_id: str) -> dict[str, dict[str, Any]]:
 
         duration = data.get("duration")
         duration_ms = (
-            duration.get("totalMilliseconds")
-            if isinstance(duration, dict)
-            else None
+            duration.get("totalMilliseconds") if isinstance(duration, dict) else None
         )
         tracks[track_id] = {
             "title": data.get("name"),
@@ -756,7 +754,12 @@ class SpotifyProvider(MusicProvider):
 
         return songs
 
-    def download_tracks(self, songs: list[Song], temp_dir: Path) -> list[Song]:
+    def download_track(self, song: Song, temp_dir: Path) -> Song:
+        """Resolve and download one song with a local YoutubeDL context."""
+        song.download_path = None
+        if not song.title or not song.artist:
+            raise ValidationError("Cannot download a track without a title and artist.")
+
         options = {
             "quiet": True,
             "no_warnings": True,
@@ -767,50 +770,42 @@ class SpotifyProvider(MusicProvider):
 
         try:
             with YoutubeDL(options) as ydl:
-                for song in songs:
-                    if not song.title or not song.artist:
-                        continue
+                query = (
+                    f"ytsearch{_YOUTUBE_SEARCH_RESULTS}:"
+                    f"{song.artist} - {song.title} official audio"
+                )
+                search_info = ydl.extract_info(query, download=False)
+                if not isinstance(search_info, dict):
+                    return song
 
-                    query = (
-                        f"ytsearch{_YOUTUBE_SEARCH_RESULTS}:"
-                        f"{song.artist} - {song.title} official audio"
-                    )
-                    search_info = ydl.extract_info(query, download=False)
-                    if not isinstance(search_info, dict):
-                        continue
+                raw_entries = search_info.get("entries")
+                if not isinstance(raw_entries, list):
+                    return song
+                candidates = [entry for entry in raw_entries if isinstance(entry, dict)]
+                selected = _select_candidate(candidates, song.duration)
+                if selected is None:
+                    return song
 
-                    raw_entries = search_info.get("entries")
-                    if not isinstance(raw_entries, list):
-                        continue
-                    candidates = [
-                        entry for entry in raw_entries if isinstance(entry, dict)
-                    ]
-                    selected = _select_candidate(candidates, song.duration)
-                    if selected is None:
-                        continue
+                selected_id = selected.get("id")
+                if not isinstance(selected_id, str) or not selected_id:
+                    return song
 
-                    selected_id = selected.get("id")
-                    if not isinstance(selected_id, str) or not selected_id:
-                        continue
+                video_url = selected.get("webpage_url") or selected.get("url")
+                if not isinstance(video_url, str) or not video_url:
+                    video_url = f"https://www.youtube.com/watch?v={selected_id}"
 
-                    video_url = selected.get("webpage_url") or selected.get("url")
-                    if not isinstance(video_url, str) or not video_url:
-                        video_url = f"https://www.youtube.com/watch?v={selected_id}"
+                info = ydl.extract_info(video_url, download=True)
+                if not isinstance(info, dict):
+                    return song
 
-                    info = ydl.extract_info(video_url, download=True)
-                    if not isinstance(info, dict):
-                        continue
-
-                    raw_id = info.get("id")
-                    yt_id = (
-                        raw_id if isinstance(raw_id, str) and raw_id else selected_id
-                    )
-                    raw_ext = info.get("ext") or selected.get("ext")
-                    ext = _sanitize_ext(raw_ext if isinstance(raw_ext, str) else None)
-                    song.download_path = temp_dir / f"{yt_id}.{ext}"
-        except DownloadError as e:
+                raw_id = info.get("id")
+                yt_id = raw_id if isinstance(raw_id, str) and raw_id else selected_id
+                raw_ext = info.get("ext") or selected.get("ext")
+                ext = _sanitize_ext(raw_ext if isinstance(raw_ext, str) else None)
+                song.download_path = temp_dir / f"{yt_id}.{ext}"
+        except DownloadError as error:
             raise MusicShelfError(
-                f"Failed to resolve audio stream from YouTube: {e.msg}"
+                f"Failed to resolve audio stream from YouTube: {error.msg}"
             ) from None
 
-        return songs
+        return song

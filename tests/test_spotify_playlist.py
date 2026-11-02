@@ -372,15 +372,12 @@ def test_process_playlist_organizes_each_track_by_its_own_album(
 
     downloaded: list[str] = []
 
-    def fake_download_tracks(
-        self: SpotifyProvider, batch: list[Song], temp_dir: Path
-    ) -> list[Song]:
-        song = batch[0]
+    def fake_download_track(self: SpotifyProvider, song: Song, temp_dir: Path) -> Song:
         source = Path(temp_dir) / f"{song.source_id}.m4a"
         source.write_bytes(b"fake audio")
         song.download_path = source
         downloaded.append(song.source_id or "")
-        return batch
+        return song
 
     def fake_convert(source: Path, fmt: AudioFormat, temp_dir: Path) -> Path:
         destination = Path(temp_dir) / f"{source.stem}-converted.{fmt.value}"
@@ -392,14 +389,14 @@ def test_process_playlist_organizes_each_track_by_its_own_album(
     def fake_write_metadata(song: Song) -> None:
         metadata_written.append(song.title)
 
-    monkeypatch.setattr(SpotifyProvider, "download_tracks", fake_download_tracks)
+    monkeypatch.setattr(SpotifyProvider, "download_track", fake_download_track)
     monkeypatch.setattr(musicshelf.cli, "convert", fake_convert)
     monkeypatch.setattr(musicshelf.cli, "write_metadata", fake_write_metadata)
 
     result = runner.invoke(app, [PLAYLIST_URL, "-d", str(tmp_path), "-f", "m4a"])
 
     assert result.exit_code == 0, result.stdout
-    assert downloaded == ["track-one", "track-two"]
+    assert sorted(downloaded) == ["track-one", "track-two"]
     assert metadata_written == ["First Song", "Second Song"]
     assert (tmp_path / "Artist One" / "Album One" / "First Song.m4a").exists()
     assert (tmp_path / "Artist Two" / "Album Two" / "Second Song.m4a").exists()
@@ -423,7 +420,7 @@ def test_playlist_all_existing_skips_before_workdir(
     def fail_if_called(*args: object, **kwargs: object) -> None:
         pytest.fail("Playlist started downloading or created a workdir.")
 
-    monkeypatch.setattr(SpotifyProvider, "download_tracks", fail_if_called)
+    monkeypatch.setattr(SpotifyProvider, "download_track", fail_if_called)
     monkeypatch.setattr(musicshelf.cli.tempfile, "TemporaryDirectory", fail_if_called)
 
     result = runner.invoke(app, [PLAYLIST_URL, "-d", str(tmp_path), "-f", "m4a"])

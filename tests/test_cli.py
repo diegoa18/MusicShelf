@@ -62,7 +62,7 @@ def test_skip_existing_file(
     def fail_if_called(*args: object, **kwargs: object) -> None:
         pytest.fail("Work was started even though the file already existed.")
 
-    monkeypatch.setattr(YouTubeMusicProvider, "download_tracks", fail_if_called)
+    monkeypatch.setattr(YouTubeMusicProvider, "download_track", fail_if_called)
     monkeypatch.setattr(musicshelf.cli.tempfile, "TemporaryDirectory", fail_if_called)
 
     url = "https://music.youtube.com/watch?v=dummy123"
@@ -108,7 +108,7 @@ def test_album_all_existing_skips_before_workdir(
     def fail_if_called(*args: object, **kwargs: object) -> None:
         pytest.fail("Album started downloading or created a workdir.")
 
-    monkeypatch.setattr(YouTubeMusicProvider, "download_tracks", fail_if_called)
+    monkeypatch.setattr(YouTubeMusicProvider, "download_track", fail_if_called)
     monkeypatch.setattr(musicshelf.cli.tempfile, "TemporaryDirectory", fail_if_called)
 
     url = "https://music.youtube.com/playlist?list=OLAK5uy_test"
@@ -129,21 +129,21 @@ def test_overwrite_processes_existing_file(
 
     downloaded: list[str] = []
 
-    def fake_download_tracks(
-        self: YouTubeMusicProvider, songs: list[Song], temp_dir: Path
-    ) -> list[Song]:
-        downloaded.append(songs[0].title)
+    def fake_download_track(
+        self: YouTubeMusicProvider, song: Song, temp_dir: Path
+    ) -> Song:
+        downloaded.append(song.title)
         source = Path(temp_dir) / "raw.m4a"
         source.write_bytes(b"new")
-        songs[0].download_path = source
-        return songs
+        song.download_path = source
+        return song
 
     def fake_convert(source: Path, fmt: object, temp_dir: Path) -> Path:
         destination = Path(temp_dir) / "converted.m4a"
         shutil.copyfile(source, destination)
         return destination
 
-    monkeypatch.setattr(YouTubeMusicProvider, "download_tracks", fake_download_tracks)
+    monkeypatch.setattr(YouTubeMusicProvider, "download_track", fake_download_track)
     monkeypatch.setattr(musicshelf.cli, "convert", fake_convert)
     monkeypatch.setattr(musicshelf.cli, "write_metadata", lambda song: None)
 
@@ -171,21 +171,21 @@ def test_album_partial_skip_downloads_only_pending(
 
     downloaded: list[str] = []
 
-    def fake_download_tracks(
-        self: YouTubeMusicProvider, batch: list[Song], temp_dir: Path
-    ) -> list[Song]:
-        downloaded.extend(song.title for song in batch)
-        source = Path(temp_dir) / f"{batch[0].source_id}.m4a"
+    def fake_download_track(
+        self: YouTubeMusicProvider, song: Song, temp_dir: Path
+    ) -> Song:
+        downloaded.append(song.title)
+        source = Path(temp_dir) / f"{song.source_id}.m4a"
         source.write_bytes(b"new")
-        batch[0].download_path = source
-        return batch
+        song.download_path = source
+        return song
 
     def fake_convert(source: Path, fmt: object, temp_dir: Path) -> Path:
         destination = Path(temp_dir) / f"{source.stem}-converted.m4a"
         shutil.copyfile(source, destination)
         return destination
 
-    monkeypatch.setattr(YouTubeMusicProvider, "download_tracks", fake_download_tracks)
+    monkeypatch.setattr(YouTubeMusicProvider, "download_track", fake_download_track)
     monkeypatch.setattr(musicshelf.cli, "convert", fake_convert)
     monkeypatch.setattr(musicshelf.cli, "write_metadata", lambda song: None)
 

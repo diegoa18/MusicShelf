@@ -16,11 +16,13 @@ _YTDLP_OPTIONS: dict[str, Any] = {
     "no_warnings": True,
 }
 
+
 def _sanitize_ext(ext: str | None) -> str:
     _SAFE = {"mp3", "opus", "m4a", "ogg", "flac", "wav"}
     if ext and ext.lower() in _SAFE:
         return ext.lower()
     return "mp3"
+
 
 class BandcampProvider(MusicProvider):
     """Provider implementation for Bandcamp."""
@@ -38,7 +40,10 @@ class BandcampProvider(MusicProvider):
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return False
         # Intercepts both bandcamp.com and any subdomain like artist.bandcamp.com
-        return parsed.hostname.endswith(".bandcamp.com") or parsed.hostname == "bandcamp.com"
+        return (
+            parsed.hostname.endswith(".bandcamp.com")
+            or parsed.hostname == "bandcamp.com"
+        )
 
     def detect_url_type(self, url: str) -> UrlType:
         if not self.can_handle(url):
@@ -62,7 +67,9 @@ class BandcampProvider(MusicProvider):
         url_type = self.detect_url_type(url)
 
         if url_type == UrlType.CHANNEL:
-            raise ValidationError("Bandcamp artist profiles are not supported. Use a specific track or album URL.")
+            raise ValidationError(
+                "Bandcamp artist profiles are not supported. Use a specific track or album URL."
+            )
 
         if url_type == UrlType.UNKNOWN:
             raise ValidationError("Unrecognized Bandcamp URL format.")
@@ -74,10 +81,14 @@ class BandcampProvider(MusicProvider):
             with YoutubeDL(_YTDLP_OPTIONS) as ydl:
                 info = ydl.extract_info(url, download=False)
                 if not isinstance(info, dict):
-                    raise MusicShelfError("Failed to extract valid metadata from Bandcamp.")
+                    raise MusicShelfError(
+                        "Failed to extract valid metadata from Bandcamp."
+                    )
                 return info
         except DownloadError as e:
-            raise MusicShelfError(f"Connection or metadata extraction failure: {e.msg}") from None
+            raise MusicShelfError(
+                f"Connection or metadata extraction failure: {e.msg}"
+            ) from None
 
     def _build_song(self, info: dict[str, Any], url: str) -> Song:
         title = info.get("track") or info.get("title", "Unknown")
@@ -131,7 +142,11 @@ class BandcampProvider(MusicProvider):
 
         return songs
 
-    def download_tracks(self, songs: list[Song], temp_dir: Path) -> list[Song]:
+    def download_track(self, song: Song, temp_dir: Path) -> Song:
+        song.download_path = None
+        if not song.source_url or not song.source_id:
+            return song
+
         options = {
             **_YTDLP_OPTIONS,
             "format": "bestaudio/best",
@@ -140,14 +155,11 @@ class BandcampProvider(MusicProvider):
 
         try:
             with YoutubeDL(options) as ydl:
-                for song in songs:
-                    if not song.source_url or not song.source_id:
-                        continue
-                    info = ydl.extract_info(song.source_url, download=True)
-                    raw_ext = info.get("ext") if isinstance(info, dict) else None
-                    ext = _sanitize_ext(raw_ext)
-                    song.download_path = temp_dir / f"{song.source_id}.{ext}"
+                info = ydl.extract_info(song.source_url, download=True)
+            raw_ext = info.get("ext") if isinstance(info, dict) else None
+            ext = _sanitize_ext(raw_ext)
+            song.download_path = temp_dir / f"{song.source_id}.{ext}"
         except DownloadError as e:
             raise MusicShelfError(f"Connection or download failure: {e.msg}") from None
 
-        return songs
+        return song
