@@ -404,3 +404,30 @@ def test_process_playlist_organizes_each_track_by_its_own_album(
     assert (tmp_path / "Artist One" / "Album One" / "First Song.m4a").exists()
     assert (tmp_path / "Artist Two" / "Album Two" / "Second Song.m4a").exists()
     assert not (tmp_path / "Road Trip").exists()
+
+
+def test_playlist_all_existing_skips_before_workdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    songs = [
+        _song("First Song", "Artist One", "Album One", "track-one"),
+        _song("Second Song", "Artist Two", "Album Two", "track-two"),
+    ]
+    monkeypatch.setattr(SpotifyProvider, "inspect_playlist", lambda self, url: songs)
+
+    for song in songs:
+        target = musicshelf.cli.get_target_path(song, tmp_path, ".m4a")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("Playlist started downloading or created a workdir.")
+
+    monkeypatch.setattr(SpotifyProvider, "download_tracks", fail_if_called)
+    monkeypatch.setattr(musicshelf.cli.tempfile, "TemporaryDirectory", fail_if_called)
+
+    result = runner.invoke(app, [PLAYLIST_URL, "-d", str(tmp_path), "-f", "m4a"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "All tracks are already in the library." in result.stdout
+    assert "Downloaded: 0 | Processed: 0 | Skipped: 2" in result.stdout

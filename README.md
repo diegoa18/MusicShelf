@@ -32,6 +32,10 @@ uv run musicshelf <URL> [OPTIONS]
 | `--overwrite` | Force overwrite of existing files (existing files are skipped by default) |
 | `--audit` | Audit the current library for misplaced, corrupted, or tagless files |
 
+Tracks whose final file already exists are skipped before downloading or
+processing. Use `--overwrite` to re-download them. Every non-dry-run download
+command ends with a summary of downloaded, processed and skipped tracks.
+
 ### Examples
 
 ```bash
